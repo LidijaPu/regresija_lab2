@@ -1,1 +1,1 @@
-# regresiha_lab2
+# regresija_lab2
