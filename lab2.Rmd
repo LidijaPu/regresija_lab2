@@ -45,11 +45,48 @@ colSums(is.na(allData))
 
 ```{r}
 allData <- allData %>% drop_na()
+colSums(is.na(allData))
 ```
 
-
 ```{r}
-colSums(is.na(allData))
+# 1. Užtikriname, kad 'allData' būtų tinkamo formato (data.frame)
+# Tai apsaugo nuo "closure" klaidų
+allData <- as.data.frame(allData)
+
+# 2. Funkcija išskirčių indeksams rasti pagal IQR (k=3)
+get_outlier_indices <- function(x, k = 3) {
+  # Tikriname, ar kintamasis skaitinis
+  if (!is.numeric(x)) return(NULL)
+  
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  
+  lower_bound <- q1 - k * iqr
+  upper_bound <- q3 + k * iqr
+  
+  which(x < lower_bound | x > upper_bound)
+}
+
+# 3. Randame visus skaitinius stulpelius
+numeric_cols <- sapply(allData, is.numeric)
+
+# 4. Naudojame lapply indeksams gauti tik iš skaitinių stulpelių
+outliers_list <- lapply(allData[, numeric_cols, drop = FALSE], get_outlier_indices)
+
+# 5. Sujungiame visus unikalius eilučių indeksus į vieną vektorių
+all_outlier_indices <- unique(unlist(outliers_list))
+
+# 6. Rezultatų atvaizdavimas
+if(length(all_outlier_indices) > 0) {
+  cat("Rasta eilučių su išskirtimis:", length(all_outlier_indices), "\n")
+  # Išspausdiname visą informaciją apie rastas išskirtines eilutes
+  print(allData[all_outlier_indices, , drop = FALSE])
+} else {
+  cat("Išskirčių pagal k=3 metodiką nerasta.\n")
+}
+
+
 ```
 
 
@@ -109,6 +146,29 @@ for(k in kategoriniai_kintamieji) {
 
 
 ```
+```{r}
+library(ggplot2)
+
+for(k in kategoriniai_kintamieji) {
+  
+  if (!(k %in% names(allData))) next
+  
+  # Paruošiame duomenis
+  df_plot <- as.data.frame(table(allData[[k]], useNA = "ifany"))
+  colnames(df_plot) <- c("Kategorija", "Daznis")
+  
+  # Braižome paprastą ir gražų grafiką
+  p <- ggplot(df_plot, aes(x = Kategorija, y = Daznis, fill = Kategorija)) +
+    geom_bar(stat = "identity", show.legend = FALSE) +
+    scale_fill_viridis_d(option = "D") + # Moderni, graži paletė
+    theme_minimal() +
+    labs(title = paste("Pasiskirstymas:", k), x = NULL, y = "Skaičius") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  print(p)
+}
+```
+
 ```{r}
 # 1. Sukuriame numeric_vars kintamąjį, atrinkdami tik skaitinius stulpelius
 numeric_vars <- allData %>% select(where(is.numeric))
