@@ -9,16 +9,26 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+library(quantreg)
 library(tidyverse) 
 set.seed(20260408)
+library(knitr)
+library(scales) 
+library(moments)
+library(ggcorrplot)
+library(dplyr)
 
-library(tidyverse)
+```
 
+
+```{r}
 # 1. Nurodome aplanką
-path <- "C:/Users/Lidija/Desktop/"
+#path <- "C:/Users/Lidija/Desktop/"
 
 # 2. Gauname visų failų sąrašą
-files <- list.files(path = path, pattern = "apartments_pl_2024_.*\\.csv", full.names = TRUE)
+#files <- list.files(path = path, pattern = "apartments_pl_2024_.*\\.csv", full.names = TRUE)
+
+files <- list.files(pattern = "apartments_pl_2024_.*\\.csv")
 
 # 3. Įkeliame failus ir IŠKART suteikiame vardus prieš sujungiant
 # Naudojame set_names() ant failų sąrašo
@@ -45,127 +55,139 @@ colSums(is.na(allData))
 
 ```{r}
 allData <- allData %>% drop_na()
+```
+
+
+```{r}
 colSums(is.na(allData))
 ```
 
-```{r}
-# 1. Užtikriname, kad 'allData' būtų tinkamo formato (data.frame)
-# Tai apsaugo nuo "closure" klaidų
-allData <- as.data.frame(allData)
-
-# 2. Funkcija išskirčių indeksams rasti pagal IQR (k=3)
-get_outlier_indices <- function(x, k = 3) {
-  # Tikriname, ar kintamasis skaitinis
-  if (!is.numeric(x)) return(NULL)
-  
-  q1 <- quantile(x, 0.25, na.rm = TRUE)
-  q3 <- quantile(x, 0.75, na.rm = TRUE)
-  iqr <- q3 - q1
-  
-  lower_bound <- q1 - k * iqr
-  upper_bound <- q3 + k * iqr
-  
-  which(x < lower_bound | x > upper_bound)
-}
-
-# 3. Randame visus skaitinius stulpelius
-numeric_cols <- sapply(allData, is.numeric)
-
-# 4. Naudojame lapply indeksams gauti tik iš skaitinių stulpelių
-outliers_list <- lapply(allData[, numeric_cols, drop = FALSE], get_outlier_indices)
-
-# 5. Sujungiame visus unikalius eilučių indeksus į vieną vektorių
-all_outlier_indices <- unique(unlist(outliers_list))
-
-# 6. Rezultatų atvaizdavimas
-if(length(all_outlier_indices) > 0) {
-  cat("Rasta eilučių su išskirtimis:", length(all_outlier_indices), "\n")
-  # Išspausdiname visą informaciją apie rastas išskirtines eilutes
-  print(allData[all_outlier_indices, , drop = FALSE])
-} else {
-  cat("Išskirčių pagal k=3 metodiką nerasta.\n")
-}
-
-
-```
-
 
 ```{r}
-names(allData) <- c("Mėnuo",
-                 "id",
-                 "Miestas",
-                 "Tipas",
-                 "KVM",
-                 "Kambarių_skaičius",
-                 "Aukštas",
-                 "Aukštų_skaičius",
-                 "Pastatymo_metai",
-                 "Atstumas_nuo_centro",
-                 "Lankytiniai_objektai_sk.",
-                 "Atstumas_nuo_mokyklos",
-                 "Atstumas_nuo_klinikas",
-                 "Atstumas_nuo_pašto",
-                 "Atstumas_nuo_vaikų_darželio",
-                 "Atstumas_nuo_restorano",
-                 "Atstumas_nuo_universiteto",
-                 "Atstumas_nuo_vaistines",
-                 "Statybinė_medžiaga",
-                 "Būklė",
-                 "Yra_parkingo_vieta",
-                 "Yra_balkonas",
-                 "Yra_liftas",
-                 "Yra_apsauga",
-                 "Yra_sandėliukas",
-                 "Kaina"
-                 )
-```
+names(allData) <- c(
+  "Mėnuo",
+  "id",
+  "Miestas",
+  "Tipas",
+  "KVM",
+  "Kambarių skaičius",
+  "Aukštas",
+  "Aukštų skaičius",
+  "Pastatymo metai",
+  "Atstumas iki centro",
+  "Lankytinių objektų sk.",
+  "Atstumas iki mokyklos",
+  "Atstumas iki klinikos",
+  "Atstumas iki pašto",
+  "Atstumas iki vaikų darželio",
+  "Atstumas iki restorano",
+  "Atstumas iki universiteto",
+  "Atstumas iki vaistinės",
+  "Statybinė medžiaga",
+  "Būklė",
+  "Yra parkingo vieta",
+  "Yra balkonas",
+  "Yra liftas",
+  "Yra apsauga",
+  "Yra sandėliukas",
+  "Kaina"
+)
 
-```{r}
-
-```
-
-
-```{r}
-# 1. Konvertuojame kategorinius stulpelius į 'factor'
 allData <- allData %>%
-  mutate(across(c(Miestas, Tipas, Statybinė_medžiaga, Būklė, 
-                  Yra_parkingo_vieta, Yra_balkonas, Yra_liftas, 
-                  Yra_apsauga, Yra_sandėliukas), as.factor))
+  mutate(across(c(
+    Miestas,
+    Tipas,
+    `Statybinė medžiaga`,
+    Būklė,
+    `Yra parkingo vieta`,
+    `Yra balkonas`,
+    `Yra liftas`,
+    `Yra apsauga`,
+    `Yra sandėliukas`
+  ), as.factor))
+
 ```
 
 ```{r}
-kategoriniai_kintamieji <- c("Miestas", "Tipas", "Statybinė_medžiaga", "Būklė", 
-                             "Yra_parkingo_vieta", "Yra_balkonas", "Yra_liftas", 
-                             "Yra_apsauga", "Yra_sandėliukas")
+# Miestų pavadinimai
+allData$Miestas <- dplyr::recode(allData$Miestas,
+  "bialystok" = "Balstogė",
+  "bydgoszcz" = "Bydgoščius",
+  "czestochowa" = "Čenstakava",
+  "gdansk" = "Gdanskas",
+  "gdynia" = "Gdynė",
+  "katowice" = "Katovicai",
+  "krakow" = "Krokuva",
+  "lodz" = "Lodzė",
+  "lublin" = "Liublinas",
+  "poznan" = "Poznanė",
+  "radom" = "Radomas",
+  "rzeszow" = "Žešuvas",
+  "szczecin" = "Ščecinas",
+  "warszawa" = "Varšuva",
+  "wroclaw" = "Vroclavas"
+)
+
+# Tipas
+allData$Tipas <- dplyr::recode(allData$Tipas,
+  "apartmentBuilding" = "Daugiabutis",
+  "blockOfFlats" = "Blokinis daugiabutis",
+  "tenement" = "Senos statybos daugiabutis"
+)
+
+# Statybinė medžiaga
+allData$`Statybinė medžiaga` <- dplyr::recode(allData$`Statybinė medžiaga`,
+  "brick" = "Plyta",
+  "concreteSlab" = "Gelžbetonio plokštės"
+)
+
+# Būklė
+allData$Būklė <- dplyr::recode(allData$Būklė,
+  "low" = "Prasta",
+  "premium" = "Gera"
+)
+
+# Taip / ne kintamieji
+allData$`Yra parkingo vieta` <- dplyr::recode(allData$`Yra parkingo vieta`,
+  "no" = "Ne",
+  "yes" = "Taip"
+)
+
+allData$`Yra balkonas` <- dplyr::recode(allData$`Yra balkonas`,
+  "no" = "Ne",
+  "yes" = "Taip"
+)
+
+allData$`Yra liftas` <- dplyr::recode(allData$`Yra liftas`,
+  "no" = "Ne",
+  "yes" = "Taip"
+)
+
+allData$`Yra apsauga` <- dplyr::recode(allData$`Yra apsauga`,
+  "no" = "Ne",
+  "yes" = "Taip"
+)
+
+allData$`Yra sandėliukas` <- dplyr::recode(allData$`Yra sandėliukas`,
+  "no" = "Ne",
+  "yes" = "Taip"
+)
+
+kategoriniai_kintamieji <- c(
+  "Miestas",
+  "Tipas",
+  "Statybinė medžiaga",
+  "Būklė",
+  "Yra parkingo vieta",
+  "Yra balkonas",
+  "Yra liftas",
+  "Yra apsauga",
+  "Yra sandėliukas"
+)
 
 for(k in kategoriniai_kintamieji) {
   cat("\n---", k, "---\n")
-  # table() grąžina tik dažnius (counts)
-  print(table(allData[[k]], useNA = "ifany")) 
-}
-
-
-```
-```{r}
-library(ggplot2)
-
-for(k in kategoriniai_kintamieji) {
-  
-  if (!(k %in% names(allData))) next
-  
-  # Paruošiame duomenis
-  df_plot <- as.data.frame(table(allData[[k]], useNA = "ifany"))
-  colnames(df_plot) <- c("Kategorija", "Daznis")
-  
-  # Braižome paprastą ir gražų grafiką
-  p <- ggplot(df_plot, aes(x = Kategorija, y = Daznis, fill = Kategorija)) +
-    geom_bar(stat = "identity", show.legend = FALSE) +
-    scale_fill_viridis_d(option = "D") + # Moderni, graži paletė
-    theme_minimal() +
-    labs(title = paste("Pasiskirstymas:", k), x = NULL, y = "Skaičius") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  print(p)
+  print(table(allData[[k]], useNA = "ifany"))
 }
 ```
 
@@ -191,13 +213,7 @@ summary_table <- round(summary_table, 2)
 print(summary_table)
 ```
 
-
-
-
-
 ```{r}
-library(tidyverse)
-
 # Pasiimame visus skaitinius kintamuosius ir "ištempiame" juos į ilgą formatą
 allData %>%
   select(where(is.numeric)) %>%
@@ -209,24 +225,49 @@ allData %>%
   theme(axis.text.x = element_blank()) + # Paslepiame x ašies pavadinimus, nes jie kartojasi
   labs(title = "Skaitinių kintamųjų pasiskirstymas ir išskirtys", y = "Reikšmė", x = "")
 ```
+```{r}
+iqr_lentele <- allData %>%
+  select(where(is.numeric)) %>%
+  imap_dfr(~{
+    x <- .x
+    kintamasis <- .y
+    
+    Q1 <- quantile(x, 0.25, na.rm = TRUE)
+    Q3 <- quantile(x, 0.75, na.rm = TRUE)
+    IQR_val <- Q3 - Q1
+    
+    apatine_riba <- Q1 - 1.5 * IQR_val
+    virsutine_riba <- Q3 + 1.5 * IQR_val
+    
+    isskirtys <- x < apatine_riba | x > virsutine_riba
+    
+    tibble(
+      Kintamasis = kintamasis,
+      `Išskirčių skaičius` = sum(isskirtys, na.rm = TRUE),
+      Procentas = round(100 * mean(isskirtys, na.rm = TRUE), 2)
+    )
+  })
+
+kable(iqr_lentele, digits = 2,
+      caption = "Išskirčių skaičius ir procentas pagal IQR metodą")
+```
 
 
 ```{r}
-library(tidyverse)
-library(scales) # Kad kainos ašis būtų graži
+# 1. Kategoriniai kintamieji
+kategoriniai_kintamieji <- c(
+  "Miestas",
+  "Tipas",
+  "Statybinė medžiaga",
+  "Būklė",
+  "Yra parkingo vieta",
+  "Yra balkonas",
+  "Yra liftas",
+  "Yra apsauga",
+  "Yra sandėliukas"
+)
 
-# 1. Pasirinkite kategorinius kintamuosius, kuriuos norite palyginti su kaina
-kategoriniai_kintamieji <- c( "Miestas",
-                 "Tipas",
-                 "Statybinė_medžiaga",
-                 "Būklė",
-                 "Yra_parkingo_vieta",
-                 "Yra_balkonas",
-                 "Yra_liftas",
-                 "Yra_apsauga",
-                 "Yra_sandėliukas")
-
-# 2. Ciklas, kuris nubraižo boxplot'ą kiekvienam kintamajam
+# 2. Boxplot ciklas
 for (k in kategoriniai_kintamieji) {
   p <- ggplot(allData, aes(x = .data[[k]], y = Kaina, fill = .data[[k]])) +
     geom_boxplot(outlier.colour = "red", outlier.size = 0.5) +
@@ -236,7 +277,7 @@ for (k in kategoriniai_kintamieji) {
           legend.position = "none") +
     labs(title = paste("Kainos pasiskirstymas pagal:", k),
          x = k,
-         y = "Kaina")
+         y = "Kaina (€)")
   
   print(p)
 }
@@ -245,58 +286,63 @@ for (k in kategoriniai_kintamieji) {
 
 ```{r}
 summary(allData$Kaina)
-
-library(moments)
-
 cat("Asimetrija (Skewness):", skewness(allData$Kaina), "\n")
 cat("Ekscesas (Kurtosis):", kurtosis(allData$Kaina), "\n")
 
 ```
 
 ```{r}
-```
-
-
-```{r}
-ggplot(allData, aes(x = Kaina)) +
-  geom_histogram(aes(y = ..density..), bins = 20, fill = "skyblue", color = "black") +
+ggplot(allData, aes(x = Kaina / 1000)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 20,
+                 fill = "skyblue", color = "black") +
   geom_density(alpha = 0.2, fill = "red") +
-  labs(title = "Priklausomojo kintamojo (Y) pasiskirstymas",
-       x = "Y reikšmės", y = "Tankis") +
+  scale_x_continuous(labels = scales::label_number(big.mark = " ")) +
+  labs(title = "Priklausomojo kintamojo (kainos) pasiskirstymas",
+       x = "Kaina (tūkst. €)", y = "Tankis") +
   theme_minimal()
 ```
 
 ```{r}
-library(tidyverse)
-library(scales)
-
-# 1. Pasiruošiame duomenis: pasiliekame tik skaitinius stulpelius 
-# (grafikams netinka ID ar failų vardai)
+# 1. Pasiruošiame duomenis grafikams
 duomenys_grafikams <- allData %>%
-  select(Kaina, KVM, Kambarių_skaičius, Atstumas_nuo_centro, 
-         Pastatymo_metai, Atstumas_nuo_mokyklos, Atstumas_nuo_restorano,
-         Aukštas, Aukštų_skaičius, Lankytiniai_objektai_sk.,
-         Atstumas_nuo_klinikas, Atstumas_nuo_pašto, Atstumas_nuo_vaikų_darželio, 
-         Atstumas_nuo_universiteto, Atstumas_nuo_vaistines) %>% # Įrašykite čia visus skaitinius stulpelius
-  pivot_longer(cols = -Kaina, names_to = "Kintamasis", values_to = "Reiksme")
+  select(
+    Kaina,
+    KVM,
+    `Kambarių skaičius`,
+    `Atstumas iki centro`,
+    `Pastatymo metai`,
+    `Atstumas iki mokyklos`,
+    `Atstumas iki restorano`,
+    Aukštas,
+    `Aukštų skaičius`,
+    `Lankytinių objektų sk.`,
+    `Atstumas iki klinikos`,
+    `Atstumas iki pašto`,
+    `Atstumas iki vaikų darželio`,
+    `Atstumas iki universiteto`,
+    `Atstumas iki vaistinės`
+  ) %>%
+  pivot_longer(
+    cols = -Kaina,
+    names_to = "Kintamasis",
+    values_to = "Reikšmė"
+  )
 
-# 2. Braižome visus grafikus vienu metu (facet_wrap)
-ggplot(duomenys_grafikams, aes(x = Reiksme, y = Kaina)) +
-  geom_point(alpha = 0.3, size = 0.5) +
-  geom_smooth(method = "lm", color = "red", se = FALSE) + # Tiesinė regresija
-  facet_wrap(~Kintamasis, scales = "free_x") + # Sukuria atskirą grafiką kiekvienam kintamajam
+# 2. Braižome grafikus
+ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
+  geom_point(color = "deepskyblue3", alpha = 0.4, size = 0.8) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  facet_wrap(~Kintamasis, scales = "free_x") +
   scale_y_continuous(labels = label_number(big.mark = " ", decimal.mark = ",")) +
   theme_minimal() +
-  labs(title = "Kintamųjų įtaka kainai",
-       x = "Kintamojo reikšmė",
-       y = "Kaina")
+  labs(
+    title = "Kintamųjų įtaka kainai",
+    x = "Kintamojo reikšmė",
+    y = "Kaina"
+  )
 ```
-```{r}
-# Įdiegiame/įkeliame reikiamus paketus
-# install.packages("ggcorrplot") # Jei neturite, atkomentuokite ir paleiskite
-library(ggcorrplot)
-library(tidyverse)
 
+```{r}
 # 1. Atrenkame tik skaitinius stulpelius (koreliacijai reikia skaičių)
 # Išmetame ID, failų vardus ir kategorinius (tekstinius) stulpelius
 duomenys_koreliacijai <- allData %>%
@@ -318,15 +364,12 @@ ggcorrplot(matrica,
 ```
 
 ```{r}
-library(quantreg)
-library(tidyverse)
-
 # 1. Pasiruošiame duomenis:
 # Pašaliname stulpelius, kurie neturi įtakos kainai (ID, pavadinimai)
 # Ir užtikriname, kad kategoriniai duomenys (pvz. Miestas) būtų 'factor' tipo
 model_data <- allData %>%
   select(-id) %>% # Išmetame nereikalingus
-  mutate(across(where(is.character), as.factor)) # Tekstinius (pvz. Miestas) paverčiame kategorijomis
+  mutate(across(where(is.character), as.factor)) # Tekstinius paverčiame kategorijomis
 
 # 2. Kvantilių regresija su visais kintamaisiais (taškas "." reiškia visus likusius)
 # tau = c(0.1, 0.5, 0.9) - modeliuojame pigius, vidutinius ir prabangius butus
@@ -338,6 +381,7 @@ modelis_qr_all <- rq(Kaina ~ .,
 # Kadangi kintamųjų daug, R gali rodyti labai ilgą sąrašą
 summary(modelis_qr_all, se = "boot")
 ```
+
 ```{r}
 # Sukuriame modelį kas 5 procentilius
 library(quantreg)
