@@ -362,12 +362,27 @@ ggcorrplot(matrica,
            title = "Kintamųjų koreliacijos matrica",
            ggtheme = theme_minimal())
 ```
+```{r}
+
+set.seed(20260408)  # kad visada gautum tą patį padalijimą
+
+# Sukuriam indeksus (80% train)
+train_index <- sample(seq_len(nrow(allData)), size = 0.8 * nrow(allData))
+
+# Padalinam duomenis
+train_data <- allData[train_index, ]
+test_data  <- allData[-train_index, ]
+
+# Patikrinimas
+nrow(train_data)
+nrow(test_data)
+```
 
 ```{r}
 # 1. Pasiruošiame duomenis:
 # Pašaliname stulpelius, kurie neturi įtakos kainai (ID, pavadinimai)
 # Ir užtikriname, kad kategoriniai duomenys (pvz. Miestas) būtų 'factor' tipo
-model_data <- allData %>%
+model_data <- train_data %>%
   select(-id) %>% # Išmetame nereikalingus
   mutate(across(where(is.character), as.factor)) # Tekstinius paverčiame kategorijomis
 
@@ -379,7 +394,20 @@ modelis_qr_all <- rq(Kaina ~ .,
 
 # 3. Rezultatų peržiūra
 # Kadangi kintamųjų daug, R gali rodyti labai ilgą sąrašą
-summary(modelis_qr_all, se = "boot")
+summary(modelis_qr_all, se = "nid")
+```
+```{r}
+
+library(car)
+pagalbinis <- lm(Kaina ~ ., 
+                     data = model_data)
+vif_values <- vif(pagalbinis)
+vif_values
+```
+```{r}
+
+# Komponentų ir liekanų grafikai
+crPlots(pagalbinis)
 ```
 
 ```{r}
@@ -393,11 +421,39 @@ kvantiliai <- seq(0.05, 0.95, by = 0.05)
 # . reiškia: "visus stulpelius, kurie yra 'allData' lentelėje, 
 # išskyrus 'Kaina' ir tuos, kuriuos patys išmetame su select()"
 modelis_pilnas <- rq(Kaina ~ ., 
-                     data = allData %>% select(-id, -failo_vardas, -Mėnuo), 
+                     data = train_data %>% select(-id, -Mėnuo), 
                      tau = kvantiliai)
 
 # 3. Rezultatai (tai bus didelė lentelė)
-rezultatai_pilni <- summary(modelis_pilnas, se = "boot")
+rezultatai_pilni <- summary(modelis_pilnas, se = "nid")
+```
+```{r}
+library(lmtest)
+bptest(pagalbinis)
+#ei p<0.05, duomenys yra heteroskedastiški (sklaida nevienoda). Tai pagrindžia poreikį naudoti kvantilių regresiją.
+```
+```{r}
+library(quantreg)
+
+# Sudarome modelį konkrečiam kvantiliui (pvz., 0.75)
+fit_75 <- rq(Kaina ~ ., 
+                     data = model_data, 
+                     tau = 0.75)
+
+
+summary(fit_75, se = "nid")
+```
+```{r}
+
+su_saveikom <- rq(Kaina ~.+ `Atstumas iki mokyklos` * `Kambarių skaičius` + `Pastatymo metai`*`KVM`+ `Pastatymo metai`*`Yra balkonas`, 
+                  data = model_data, 
+                  tau = 0.75)
+
+# Peržiūrime rezultatus
+summary(su_saveikom, se = "boot")
+
+AIC(fit_75)
+AIC(su_saveikom)
 ```
 
 ```{r}
@@ -407,8 +463,8 @@ plot(rezultatai_pilni, main = "Kintamųjų įtakos kitimas skirtinguose kvantili
 
 ```{r}
 # Tikriname, ar 0.1 ir 0.9 kvantilių koeficientai yra vienodi
-anova(rq(Kaina ~ Atstumas_nuo_centro + KVM, data = allData %>% select(-id,-Mėnuo), tau = 0.1),
-      rq(Kaina ~ Atstumas_nuo_centro + KVM, data = allData %>% select(-id, -Mėnuo), tau = 0.9))
+anova(rq(Kaina ~ ., data = allData %>% select(-id,-Mėnuo), tau = 0.1),
+      rq(Kaina ~ ., data = allData %>% select(-id, -Mėnuo), tau = 0.9))
 # Jei p-reikšmė < 0.05, ryšys tarp kintamųjų skirtinguose kvantiliuose skiriasi reikšmingai.
 ```
 
