@@ -378,6 +378,7 @@ nrow(train_data)
 nrow(test_data)
 ```
 
+
 ```{r}
 # 1. Pasiruošiame duomenis:
 # Pašaliname stulpelius, kurie neturi įtakos kainai (ID, pavadinimai)
@@ -385,19 +386,22 @@ nrow(test_data)
 model_data <- train_data %>%
   select(-id) %>% # Išmetame nereikalingus
   mutate(across(where(is.character), as.factor)) # Tekstinius paverčiame kategorijomis
-
+```
+```{r}
 # 2. Kvantilių regresija su visais kintamaisiais (taškas "." reiškia visus likusius)
 # tau = c(0.1, 0.5, 0.9) - modeliuojame pigius, vidutinius ir prabangius butus
 modelis_qr_all <- rq(Kaina ~ ., 
                      data = model_data, 
                      tau = c(0.1, 0.25, 0.5, 0.75, 0.9))
-
-# 3. Rezultatų peržiūra
-# Kadangi kintamųjų daug, R gali rodyti labai ilgą sąrašą
-# summary(modelis_qr_all, se = "nid")
 ```
-```{r}
 
+```{r}
+# Braižome koeficientų pokyčius
+plot(summary(modelis_qr_all), parm="KVM", main = "Buto ploto įtakos kitimas skirtinguose kvantiliuose" )
+#x asies gradacija sutvakyti, kad matytusi tiksliai kur 0.25 ir 0.75 kvantiliai
+```
+
+```{r}
 library(car)
 pagalbinis <- lm(Kaina ~ ., 
                      data = model_data)
@@ -405,31 +409,13 @@ vif_values <- vif(pagalbinis)
 vif_values
 ```
 
-
 ```{r}
-# Sukuriame modelį kas 5 procentilius
-# library(quantreg)
-# 
-# # 1. Nustatome kvantilių seką
-# kvantiliai <- seq(0.05, 0.95, by = 0.05)
-# 
-# # 2. Naudojame formulę su tašku (Kaina ~ .)
-# # . reiškia: "visus stulpelius, kurie yra 'allData' lentelėje, 
-# # išskyrus 'Kaina' ir tuos, kuriuos patys išmetame su select()"
-# modelis_pilnas <- rq(Kaina ~ ., 
-#                      data = train_data %>% select(-id, -Mėnuo), 
-#                      tau = kvantiliai)
-# 
-# # 3. Rezultatai (tai bus didelė lentelė)
-# rezultatai_pilni <- summary(modelis_pilnas, se = "nid")
-```
-
-```{r}
+# Homoskedastiskumas:
 library(lmtest)
 bptest(pagalbinis)
 #ei p<0.05, duomenys yra heteroskedastiški (sklaida nevienoda). Tai pagrindžia poreikį naudoti kvantilių regresiją.
 ```
-
+Pirmas modelis (su tau = 0.75)
 ```{r}
 library(quantreg)
 
@@ -441,33 +427,26 @@ fit_75 <- rq(Kaina ~ .,
 
 summary(fit_75, se = "nid")
 ```
-
+Pazingsnine atranka
 ```{r}
-full_model <- rq(Kaina ~ ., data = model_data, tau = 0.75)
-
-#
-step_model <- step(full_model, direction = "backward", trace = FALSE, k = log(nrow(model_data)))
+step_model1 <- step(fit_75, direction = "backward", trace = FALSE) # k = log(nrow(model_data)))
 
 
-summary(step_model)
+summary(step_model1)
 ```
-
+Prijungiamos saveikos:
 ```{r}
+su_saveikom <- update(step_model1, . ~ . + `Pastatymo metai`*`KVM`+ `Pastatymo metai`*`Miestas` +`Atstumas iki centro` * `Pastatymo metai`+`Yra liftas` * `Aukštų skaičius` )
 
-su_saveikom <- rq(Kaina ~.+ `Pastatymo metai`*`KVM`+ `Pastatymo metai`*`Miestas` +`Atstumas iki centro` * `Pastatymo metai`+`Yra liftas` * `Aukštų skaičius`, 
-                  data = model_data, 
-                  tau = 0.75)
 
 # Peržiūrime rezultatus
 summary(su_saveikom, se = "nid")
 
-AIC(fit_75)
+AIC(step_model1)
 AIC(su_saveikom)
 ```
-
+Modelio tinkamumas:
 ```{r}
-library(quantreg)
-
 tau_reiksme <- 0.75 
 
 fit0 <- rq(Kaina ~ 1, tau = tau_reiksme, data = model_data)
@@ -480,10 +459,78 @@ R1 <- 1 - fit1$rho / fit0$rho
 cat("Pseudo-R1 reikšmė kvantiliui", tau_reiksme, "yra:", R1, "\n")
 ```
 
+2 modelis (tau = 0.25)
 ```{r}
-# Braižome koeficientų pokyčius
-# plot((modelis_qr_all), main = "Kintamųjų įtakos kitimas skirtinguose kvantiliuose")
-plot(summary(modelis_qr_all), parm="x")
+fit_25 <- rq(Kaina ~ ., 
+                     data = model_data, 
+                     tau = 0.25)
+
+
+summary(fit_25, se = "nid")
+#Nereiksmingi: Aukstas, Aukstu skaicius ir Yra sandeliukas
+```
+Pasalinami nereiksmingi kintamieji:
+```{r}
+fit_25_red <- update(
+  fit_25,
+  . ~ . - Aukštas - `Aukštų skaičius` - `Yra sandėliukas`
+)
+
+summary(fit_25_red, se = "nid")
+# Atsirado nereiksmingas Atstumas iki mokyklos
+```
+```{r}
+fit_25_2 <- update(
+  fit_25_red,
+  . ~ . - `Atstumas iki mokyklos`
+)
+
+summary(fit_25_2, se = "nid")
+# Jau visi reiksmingi
+```
+
+Prijungiamos saveikos:
+```{r}
+su_saveikom2 <- update(fit_25_2, 
+  . ~ . 
+  + KVM * `Atstumas iki centro`
+  + KVM * Miestas
+  + `Atstumas iki centro` * Miestas
+)
+
+# Peržiūrime rezultatus
+summary(su_saveikom2, se = "nid")
+
+AIC(step_model2)
+AIC(su_saveikom2)
+
+# Atsirado nereiksmingi Atstumas iki vaistines ir Atstumas iki vaiku darzelio
+```
+Pasalinti nereiksmingi kintamieji:
+```{r}
+su_saveikom2_galutinis <- update(su_saveikom2, 
+  . ~ . - `Atstumas iki vaikų darželio` - `Atstumas iki vaistinės`
+)
+
+# Peržiūrime rezultatus
+summary(su_saveikom2_galutinis, se = "nid")
+
+AIC(su_saveikom2)
+AIC(su_saveikom2_galutinis)
+```
+
+Modelio tinkamumas:
+```{r}
+tau_reiksme <- 0.25 
+
+fit02 <- rq(Kaina ~ 1, tau = tau_reiksme, data = model_data)
+fit12 <- su_saveikom2_galutinis
+
+# 2. Pseudo-R1 skaičiavimas
+# fit$rho grąžina minimizuotą tikslo funkcijos reikšmę (nuostolių funkciją)
+R1 <- 1 - fit12$rho / fit02$rho
+
+cat("Pseudo-R1 reikšmė kvantiliui", tau_reiksme, "yra:", R1, "\n")
 ```
 
 ```{r}
