@@ -17,6 +17,8 @@ library(scales)
 library(moments)
 library(ggcorrplot)
 library(dplyr)
+library(tidyr)
+library(ggplot2)
 
 ```
 
@@ -69,7 +71,7 @@ names(allData) <- c(
   "id",
   "Miestas",
   "Tipas",
-  "KVM",
+  "Plotas (m²)",
   "Kambarių skaičius",
   "Aukštas",
   "Aukštų skaičius",
@@ -214,7 +216,7 @@ print(summary_table)
 ```
 
 ```{r}
-# Pasiimame visus skaitinius kintamuosius ir "ištempiame" juos į ilgą formatą
+# Skaitinių kintamųjų išskirtys
 allData %>%
   select(where(is.numeric)) %>%
   pivot_longer(everything(), names_to = "Kintamasis", values_to = "Reiksme") %>%
@@ -303,11 +305,12 @@ ggplot(allData, aes(x = Kaina / 1000)) +
 ```
 
 ```{r}
+# Sklaidos diagramos
 # 1. Pasiruošiame duomenis grafikams
 duomenys_grafikams <- allData %>%
   select(
     Kaina,
-    KVM,
+    `Plotas (m²)`,
     `Kambarių skaičius`,
     `Atstumas iki centro`,
     `Pastatymo metai`,
@@ -341,6 +344,49 @@ ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
     y = "Kaina"
   )
 ```
+```{r}
+# Sklaidos diagramos su kvantiliais
+ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
+  geom_point(color = "deepskyblue3", alpha = 0.4, size = 0.8) +
+
+  # 0.25 kvantilis
+  geom_smooth(aes(color = "0.25 kvantilis"),
+              method = "rq", formula = y ~ x,
+              method.args = list(tau = 0.25),
+              se = FALSE, linewidth = 0.7) +
+
+  # 0.5 kvantilis (mediana)
+  geom_smooth(aes(color = "0.5 kvantilis"),
+              method = "rq", formula = y ~ x,
+              method.args = list(tau = 0.5),
+              se = FALSE, linewidth = 0.7) +
+
+  # 0.75 kvantilis
+  geom_smooth(aes(color = "0.75 kvantilis"),
+              method = "rq", formula = y ~ x,
+              method.args = list(tau = 0.75),
+              se = FALSE, linewidth = 0.7) +
+
+  facet_wrap(~Kintamasis, scales = "free_x") +
+
+  # spalvos legendai
+  scale_color_manual(
+    name = "Kvantiliai",
+    values = c(
+      "0.25 kvantilis" = "darkgreen",
+      "0.5 kvantilis" = "orange",
+      "0.75 kvantilis" = "red"
+    )
+  ) +
+
+  scale_y_continuous(labels = label_number(big.mark = " ", decimal.mark = ",")) +
+  theme_minimal() +
+  labs(
+    title = "Kintamųjų įtaka kainai (kvantilių regresija)",
+    x = "Kintamojo reikšmė",
+    y = "Kaina"
+  )
+```
 
 ```{r}
 # 1. Atrenkame tik skaitinius stulpelius (koreliacijai reikia skaičių)
@@ -363,8 +409,7 @@ ggcorrplot(matrica,
            ggtheme = theme_minimal())
 ```
 ```{r}
-
-set.seed(20260408)  # kad visada gautum tą patį padalijimą
+set.seed(20260408)  
 
 # Sukuriam indeksus (80% train)
 train_index <- sample(seq_len(nrow(allData)), size = 0.8 * nrow(allData))
@@ -380,26 +425,122 @@ nrow(test_data)
 
 
 ```{r}
-# 1. Pasiruošiame duomenis:
-# Pašaliname stulpelius, kurie neturi įtakos kainai (ID, pavadinimai)
-# Ir užtikriname, kad kategoriniai duomenys (pvz. Miestas) būtų 'factor' tipo
+# Pasiruošiame duomenis:
 model_data <- train_data %>%
   select(-id) %>% # Išmetame nereikalingus
   mutate(across(where(is.character), as.factor)) # Tekstinius paverčiame kategorijomis
 ```
+
 ```{r}
-# 2. Kvantilių regresija su visais kintamaisiais (taškas "." reiškia visus likusius)
-# tau = c(0.1, 0.5, 0.9) - modeliuojame pigius, vidutinius ir prabangius butus
+# Pavyzdinis modelis
 modelis_qr_all <- rq(Kaina ~ ., 
                      data = model_data, 
                      tau = c(0.1, 0.25, 0.5, 0.75, 0.9))
 ```
 
 ```{r}
-# Braižome koeficientų pokyčius
+# Pavyzdinis grafikas: Braižome koeficientų pokyčius buto ploto kintamajam
 plot(summary(modelis_qr_all), parm="KVM", main = "Buto ploto įtakos kitimas skirtinguose kvantiliuose" )
-#x asies gradacija sutvakyti, kad matytusi tiksliai kur 0.25 ir 0.75 kvantiliai
 ```
+
+```{r}
+# Kiekybinių kintamųjų koeficientų kitimas pagal kvantilius
+
+# 1. Duomenys modeliui
+duomenys_modeliui <- allData %>%
+  select(
+    Kaina,
+    `Plotas (m²)`,
+    `Kambarių skaičius`,
+    `Atstumas iki centro`,
+    `Pastatymo metai`,
+    `Atstumas iki mokyklos`,
+    `Atstumas iki restorano`,
+    Aukštas,
+    `Aukštų skaičius`,
+    `Lankytinių objektų sk.`,
+    `Atstumas iki klinikos`,
+    `Atstumas iki pašto`,
+    `Atstumas iki vaikų darželio`,
+    `Atstumas iki universiteto`,
+    `Atstumas iki vaistinės`
+  ) %>%
+  na.omit()
+
+# 2. Kvantiliai
+taus <- seq(0.05, 0.95, by = 0.1)  # 10 kvantilų 
+
+# 3. Kvantilių regresijos modelis
+modelis_qr_all <- rq(
+  Kaina ~ .,
+  data = duomenys_modeliui,
+  tau = taus
+)
+
+# 4. Ištraukiame koeficientus
+coef_mat <- as.data.frame(t(coef(modelis_qr_all)))
+coef_mat$tau <- taus
+
+# 5. Pasiimame visus modelio kintamuosius, išskyrus intercept
+modelio_kintamieji <- setdiff(names(coef_mat), c("tau", "(Intercept)"))
+
+# 6. Paverčiame į ilgą formatą
+coef_long <- coef_mat %>%
+  pivot_longer(
+    cols = all_of(modelio_kintamieji),
+    names_to = "Kintamasis",
+    values_to = "Koeficientas"
+  ) %>%
+  mutate(
+    Kintamasis = gsub("\\.", " ", Kintamasis),
+    Kintamasis = gsub("`", "", Kintamasis),
+    Kintamasis = recode(
+      Kintamasis,
+      "KVM" = "Plotas (m²)",
+      "Kambarių skaičius" = "Kambarių skaičius",
+      "Atstumas iki centro" = "Atstumas iki centro",
+      "Pastatymo metai" = "Pastatymo metai",
+      "Atstumas iki mokyklos" = "Atstumas iki mokyklos",
+      "Atstumas iki restorano" = "Atstumas iki restorano",
+      "Aukštas" = "Aukštas",
+      "Aukštų skaičius" = "Aukštų skaičius",
+      "Lankytinių objektų sk " = "Lankytinių objektų sk.",
+      "Atstumas iki klinikos" = "Atstumas iki klinikos",
+      "Atstumas iki pašto" = "Atstumas iki pašto",
+      "Atstumas iki vaikų darželio" = "Atstumas iki vaikų darželio",
+      "Atstumas iki universiteto" = "Atstumas iki universiteto",
+      "Atstumas iki vaistinės" = "Atstumas iki vaistinės"
+    )
+  )
+
+# 7. Braižome grafiką
+ggplot(coef_long, aes(x = tau, y = Koeficientas)) +
+  geom_hline(yintercept = 0, color = "grey70", linewidth = 0.3) +
+  geom_line(color = "deepskyblue3", linewidth = 0.6) +
+  geom_point(color = "deepskyblue4", size = 1.3) +
+  geom_vline(
+    xintercept = c(0.25, 0.5, 0.75),
+    color = "red",
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  facet_wrap(~ Kintamasis, scales = "free_y", ncol = 3) +
+  scale_x_continuous(
+    breaks = c(0.1, 0.25, 0.5, 0.75, 0.9),
+    labels = c("0.10", "0.25", "0.50", "0.75", "0.90")
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Kiekybinių kintamųjų koeficientų kitimas skirtinguose kvantiliuose",
+    x = "Kvantilis",
+    y = "Koeficiento įvertis"
+  ) +
+  theme(
+    strip.text = element_text(face = "bold", size = 9),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
 
 ```{r}
 library(car)
