@@ -19,7 +19,11 @@ library(ggcorrplot)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-
+library(car)
+library(lmtest)
+#install.packages("nortest")  
+library(nortest)
+library(gridExtra)
 ```
 
 
@@ -187,10 +191,25 @@ kategoriniai_kintamieji <- c(
   "Yra sandėliukas"
 )
 
+# Dažnių lentelės
+dazniu_lentele <- function(x) {
+  freq <- table(x, useNA = "ifany")
+  proc <- prop.table(freq) * 100
+  
+  lentele <- data.frame(
+    Reiksme = names(freq),
+    Dažnis = as.vector(freq),
+    Procentas = round(as.vector(proc), 2)
+  )
+  
+  return(lentele)
+}
+
 for(k in kategoriniai_kintamieji) {
   cat("\n---", k, "---\n")
-  print(table(allData[[k]], useNA = "ifany"))
+  print(dazniu_lentele(allData[[k]]))
 }
+
 ```
 
 ```{r}
@@ -224,10 +243,11 @@ allData %>%
   geom_boxplot(fill = "lightblue", outlier.colour = "red", outlier.size = 0.5) +
   facet_wrap(~Kintamasis, scales = "free") + # Kiekvienas turi savo skalę
   theme_minimal() +
-  theme(axis.text.x = element_blank()) + # Paslepiame x ašies pavadinimus, nes jie kartojasi
+  theme(axis.text.x = element_blank()) + 
   labs(title = "Skaitinių kintamųjų pasiskirstymas ir išskirtys", y = "Reikšmė", x = "")
 ```
 ```{r}
+# Išskirčių lentelė
 iqr_lentele <- allData %>%
   select(where(is.numeric)) %>%
   imap_dfr(~{
@@ -256,7 +276,51 @@ kable(iqr_lentele, digits = 2,
 
 
 ```{r}
-# 1. Kategoriniai kintamieji
+# Kategorinių kintamųjų stačiakampės diagramos
+
+for (k in kategoriniai_kintamieji) {
+  
+  p <- ggplot(allData, aes(x = .data[[k]], y = Kaina, fill = .data[[k]])) +
+    
+    geom_boxplot(
+      outlier.colour = "red",
+      outlier.size = 0.7,
+      color = "black"   # juodas kontūras
+    ) +
+    
+    scale_y_continuous(labels = label_number(big.mark = " ")) +
+    
+    labs(
+      title = paste("Kainos pasiskirstymas pagal:", k),
+      x = k,
+      y = "Kaina (€)"
+    ) +
+    
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(hjust = 0.5),
+      
+      # ašys
+      axis.line = element_line(color = "black", linewidth = 0.8),
+      axis.ticks = element_line(color = "black"),
+      axis.ticks.length = unit(0.2, "cm"),
+      
+      # tekstas
+      axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+      axis.text.y = element_text(color = "black"),
+      
+      # rėmelis
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8)
+    )
+  
+  print(p)
+}
+```
+
+```{r}
+# Kategorinių kintamųjų stulpelinės diagramos
+
 kategoriniai_kintamieji <- c(
   "Miestas",
   "Tipas",
@@ -269,17 +333,50 @@ kategoriniai_kintamieji <- c(
   "Yra sandėliukas"
 )
 
-# 2. Boxplot ciklas
 for (k in kategoriniai_kintamieji) {
-  p <- ggplot(allData, aes(x = .data[[k]], y = Kaina, fill = .data[[k]])) +
-    geom_boxplot(outlier.colour = "red", outlier.size = 0.5) +
+  
+  df_plot <- allData %>%
+    count(.data[[k]]) %>%
+    mutate(Procentas = round(n / sum(n) * 100, 1))
+  
+  colnames(df_plot)[1] <- "Kategorija"
+  
+  p <- ggplot(df_plot, aes(x = reorder(Kategorija, -n), y = n, fill = Kategorija)) +
+    
+    geom_col(width = 0.7, color = "black") +
+    
+    # tik procentai
+    geom_text(aes(label = paste0(Procentas, "%")),
+              vjust = -0.3, size = 3.5) +
+    
+    scale_y_continuous(
+      expand = expansion(mult = c(0, 0.15)),
+      labels = label_number(big.mark = " ")
+    ) +
+    
+    labs(
+      title = paste("Kategorinio kintamojo dažnis:", k),
+      x = k,
+      y = "Dažnis"
+    ) +
+    
     theme_minimal() +
-    scale_y_continuous(labels = label_number(big.mark = " ")) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          legend.position = "none") +
-    labs(title = paste("Kainos pasiskirstymas pagal:", k),
-         x = k,
-         y = "Kaina (€)")
+    theme(
+      legend.position = "none",
+      plot.title = element_text(hjust = 0.5),
+      
+      # ašys
+      axis.line = element_line(color = "black", linewidth = 0.8),
+      axis.ticks = element_line(color = "black"),
+      axis.ticks.length = unit(0.2, "cm"),
+      
+      # tekstas
+      axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+      axis.text.y = element_text(color = "black"),
+      
+      # rėmelis
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8)
+    )
   
   print(p)
 }
@@ -294,18 +391,20 @@ cat("Ekscesas (Kurtosis):", kurtosis(allData$Kaina), "\n")
 ```
 
 ```{r}
+# Kainos tankis
 ggplot(allData, aes(x = Kaina / 1000)) +
   geom_histogram(aes(y = after_stat(density)), bins = 20,
                  fill = "skyblue", color = "black") +
   geom_density(alpha = 0.2, fill = "red") +
   scale_x_continuous(labels = scales::label_number(big.mark = " ")) +
-  labs(title = "Priklausomojo kintamojo (kainos) pasiskirstymas",
+  labs(title = "Priklausomo kintamojo (kainos) pasiskirstymas",
        x = "Kaina (tūkst. €)", y = "Tankis") +
   theme_minimal()
 ```
 
 ```{r}
 # Sklaidos diagramos
+
 # 1. Pasiruošiame duomenis grafikams
 duomenys_grafikams <- allData %>%
   select(
@@ -332,21 +431,29 @@ duomenys_grafikams <- allData %>%
   )
 
 # 2. Braižome grafikus
-ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
+ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina / 1000)) +
   geom_point(color = "deepskyblue3", alpha = 0.4, size = 0.8) +
   geom_smooth(method = "lm", color = "red", se = FALSE) +
   facet_wrap(~Kintamasis, scales = "free_x") +
-  scale_y_continuous(labels = label_number(big.mark = " ", decimal.mark = ",")) +
+  
+  scale_y_continuous(
+    labels = label_number(decimal.mark = ",")
+  ) +
+  
   theme_minimal() +
   labs(
     title = "Kintamųjų įtaka kainai",
     x = "Kintamojo reikšmė",
-    y = "Kaina"
+    y = "Kaina (tūkst. €)"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
   )
 ```
 ```{r}
 # Sklaidos diagramos su kvantiliais
-ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
+
+ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina / 1000)) +
   geom_point(color = "deepskyblue3", alpha = 0.4, size = 0.8) +
 
   # 0.25 kvantilis
@@ -355,7 +462,7 @@ ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
               method.args = list(tau = 0.25),
               se = FALSE, linewidth = 0.7) +
 
-  # 0.5 kvantilis (mediana)
+  # 0.5 kvantilis
   geom_smooth(aes(color = "0.5 kvantilis"),
               method = "rq", formula = y ~ x,
               method.args = list(tau = 0.5),
@@ -369,7 +476,6 @@ ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
 
   facet_wrap(~Kintamasis, scales = "free_x") +
 
-  # spalvos legendai
   scale_color_manual(
     name = "Kvantiliai",
     values = c(
@@ -379,36 +485,56 @@ ggplot(duomenys_grafikams, aes(x = Reikšmė, y = Kaina)) +
     )
   ) +
 
-  scale_y_continuous(labels = label_number(big.mark = " ", decimal.mark = ",")) +
+  scale_y_continuous(
+    labels = label_number(decimal.mark = ",")
+  ) +
+
   theme_minimal() +
   labs(
-    title = "Kintamųjų įtaka kainai (kvantilių regresija)",
+    title = "Kintamųjų įtaka būsto kainai skirtinguose kvantiliuose",
     x = "Kintamojo reikšmė",
-    y = "Kaina"
+    y = "Kaina (tūkst. €)"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
   )
 ```
 
 ```{r}
-# 1. Atrenkame tik skaitinius stulpelius (koreliacijai reikia skaičių)
+# Koreliacijos matrica
+
+# 1. Atrenkame tik skaitinius stulpelius 
 # Išmetame ID, failų vardus ir kategorinius (tekstinius) stulpelius
 duomenys_koreliacijai <- allData %>%
-  select(where(is.numeric))  # Jei turite stulpelį 'id', jį būtinai išimkite
+  select(where(is.numeric))  
 
 # 2. Skaičiuojame koreliacijos matricą
-# use = "complete.obs" svarbu, kad NA reikšmės nesugadintų skaičiavimo
-matrica <- cor(duomenys_koreliacijai, use = "complete.obs", method = "spearman")
+matrica <- cor(duomenys_koreliacijai, use = "complete.obs", method = "spearman") # Spearman koreliacijos koeficientai 
 
 # 3. Braižome koreliacijos matricą
-ggcorrplot(matrica, 
-           method = "square",       # kvadratai
-           type = "lower",          # rodoma tik apatinė dalis (kad nebūtų apkrauta)
-           lab = TRUE,              # parodo skaičius kvadratuose
-           lab_size = 2,            # skaičių dydis
-           colors = c("red", "white", "blue"), # raudona - neigiama, mėlyna - teigiama
-           title = "Kintamųjų koreliacijos matrica",
-           ggtheme = theme_minimal())
+ggcorrplot(
+  matrica, 
+  method = "square",       
+  type = "lower",         
+  lab = TRUE,            
+  lab_size = 2,           
+  colors = c("red", "white", "blue"), 
+  title = "Kintamųjų koreliacijos matrica",
+  ggtheme = theme_minimal()
+) +
+theme(
+  axis.text.x = element_text(
+    angle = -90,
+    vjust = 0.5,
+    hjust = 0,
+    margin = margin(t = -2)   
+  ),
+  plot.title = element_text(hjust = 0.5)
+)
 ```
 ```{r}
+# Mokymo ir testavimo aibės
+
 set.seed(20260408)  
 
 # Sukuriam indeksus (80% train)
@@ -418,7 +544,6 @@ train_index <- sample(seq_len(nrow(allData)), size = 0.8 * nrow(allData))
 train_data <- allData[train_index, ]
 test_data  <- allData[-train_index, ]
 
-# Patikrinimas
 nrow(train_data)
 nrow(test_data)
 ```
@@ -427,24 +552,13 @@ nrow(test_data)
 ```{r}
 # Pasiruošiame duomenis:
 model_data <- train_data %>%
-  select(-id) %>% # Išmetame nereikalingus
-  mutate(across(where(is.character), as.factor)) # Tekstinius paverčiame kategorijomis
+  select(-id) %>% 
+  mutate(across(where(is.character), as.factor)) 
 ```
 
-```{r}
-# Pavyzdinis modelis
-modelis_qr_all <- rq(Kaina ~ ., 
-                     data = model_data, 
-                     tau = c(0.1, 0.25, 0.5, 0.75, 0.9))
-```
 
 ```{r}
-# Pavyzdinis grafikas: Braižome koeficientų pokyčius buto ploto kintamajam
-plot(summary(modelis_qr_all), parm="KVM", main = "Buto ploto įtakos kitimas skirtinguose kvantiliuose" )
-```
-
-```{r}
-# Kiekybinių kintamųjų koeficientų kitimas pagal kvantilius
+# Kiekybinių kintamųjų koeficientų kitimas skirtinguose kvantiliuose
 
 # 1. Duomenys modeliui
 duomenys_modeliui <- allData %>%
@@ -468,116 +582,250 @@ duomenys_modeliui <- allData %>%
   na.omit()
 
 # 2. Kvantiliai
-taus <- seq(0.05, 0.95, by = 0.1)  # 10 kvantilų 
+taus <- seq(0.05, 0.95, by = 0.1)
 
-# 3. Kvantilių regresijos modelis
+# 3. Modelis
 modelis_qr_all <- rq(
   Kaina ~ .,
   data = duomenys_modeliui,
   tau = taus
 )
 
-# 4. Ištraukiame koeficientus
-coef_mat <- as.data.frame(t(coef(modelis_qr_all)))
-coef_mat$tau <- taus
+# 4. Summary
+sum_qr <- summary(modelis_qr_all, se = "nid")
 
-# 5. Pasiimame visus modelio kintamuosius, išskyrus intercept
-modelio_kintamieji <- setdiff(names(coef_mat), c("tau", "(Intercept)"))
+# 5. Kintamieji
+kintamieji_modelyje <- rownames(coef(modelis_qr_all))
+kintamieji_modelyje <- kintamieji_modelyje[kintamieji_modelyje != "(Intercept)"]
 
-# 6. Paverčiame į ilgą formatą
-coef_long <- coef_mat %>%
-  pivot_longer(
-    cols = all_of(modelio_kintamieji),
-    names_to = "Kintamasis",
-    values_to = "Koeficientas"
-  ) %>%
-  mutate(
-    Kintamasis = gsub("\\.", " ", Kintamasis),
-    Kintamasis = gsub("`", "", Kintamasis),
-    Kintamasis = recode(
-      Kintamasis,
-      "KVM" = "Plotas (m²)",
-      "Kambarių skaičius" = "Kambarių skaičius",
-      "Atstumas iki centro" = "Atstumas iki centro",
-      "Pastatymo metai" = "Pastatymo metai",
-      "Atstumas iki mokyklos" = "Atstumas iki mokyklos",
-      "Atstumas iki restorano" = "Atstumas iki restorano",
-      "Aukštas" = "Aukštas",
-      "Aukštų skaičius" = "Aukštų skaičius",
-      "Lankytinių objektų sk " = "Lankytinių objektų sk.",
-      "Atstumas iki klinikos" = "Atstumas iki klinikos",
-      "Atstumas iki pašto" = "Atstumas iki pašto",
-      "Atstumas iki vaikų darželio" = "Atstumas iki vaikų darželio",
-      "Atstumas iki universiteto" = "Atstumas iki universiteto",
-      "Atstumas iki vaistinės" = "Atstumas iki vaistinės"
-    )
+# 6. Braižymas
+par(mar = c(5, 5, 3, 1))
+
+for (k in kintamieji_modelyje) {
+  
+  plot(
+    sum_qr,
+    parm = k,
+    main = gsub("`", "", k)
+  )
+  
+  # vertikalios linijos ties 0.25 ir 0.75
+  abline(v = c(0.25, 0.75), col = "grey40", lty = 2)
+  
+  # pasiimam grafiko ribas
+  usr <- par("usr")
+  
+  # papildomi tick'ai
+  segments(0.25, usr[3], 0.25, usr[3] + 0.04 * (usr[4] - usr[3]))
+  segments(0.75, usr[3], 0.75, usr[3] + 0.04 * (usr[4] - usr[3]))
+  
+  # papildomi labeliai (toje pačioje linijoje kaip originalūs)
+  text(0.25, usr[3] - 0.06 * (usr[4] - usr[3]), "0.25", xpd = NA, col = "red")
+  text(0.75, usr[3] - 0.06 * (usr[4] - usr[3]), "0.75", xpd = NA, col = "red")
+  
+  # ašių pavadinimai
+  mtext("Kvantilis", side = 1, line = 4)
+  mtext("Koeficiento įvertis", side = 2, line = 4)
+}
+
+```
+
+```{r}
+# Kategorinių kintamųjų koeficientų kitimas skirtinguose kvantiliuose
+
+# 1. Pasirenkam kategorinius
+kategoriniai_pavadinimai <- c(
+  "Miestas",
+  "Tipas",
+  "Statybinė medžiaga",
+  "Būklė",
+  "Yra parkingo vieta",
+  "Yra balkonas",
+  "Yra liftas",
+  "Yra apsauga",
+  "Yra sandėliukas"
+)
+
+sutvarkyti_pavadinima <- function(k, vardai) {
+  k2 <- gsub("`", "", k)
+  
+  for (v in vardai) {
+    if (startsWith(k2, v)) {
+      lygmuo <- sub(paste0("^", v), "", k2)
+      return(paste0(v, ": ", lygmuo))
+    }
+  }
+  
+  return(k2)
+}
+
+# 2. Kvantiliai
+taus <- seq(0.05, 0.95, by = 0.1)
+
+# 3. Modelis (svarbu: kategoriniai kaip factor)
+modelis_qr_cat <- rq(
+  Kaina ~ .,
+  data = duomenys_modeliui_cat,
+  tau = taus
+)
+
+# 4. Summary
+sum_qr_cat <- summary(modelis_qr_cat, se = "nid")
+
+# 5. Imam visus koeficientus (be intercept)
+kintamieji_cat <- rownames(coef(modelis_qr_cat))
+kintamieji_cat <- kintamieji_cat[kintamieji_cat != "(Intercept)"]
+
+# 6. Braižymas
+par(mar = c(5, 5, 3, 1))
+
+for (k in kintamieji_cat) {
+  plot(
+    sum_qr_cat,
+    parm = k,
+    main = sutvarkyti_pavadinima(k, kategoriniai_pavadinimai)
   )
 
-# 7. Braižome grafiką
-ggplot(coef_long, aes(x = tau, y = Koeficientas)) +
-  geom_hline(yintercept = 0, color = "grey70", linewidth = 0.3) +
-  geom_line(color = "deepskyblue3", linewidth = 0.6) +
-  geom_point(color = "deepskyblue4", size = 1.3) +
-  geom_vline(
-    xintercept = c(0.25, 0.5, 0.75),
-    color = "red",
-    linetype = "dashed",
-    linewidth = 0.4
-  ) +
-  facet_wrap(~ Kintamasis, scales = "free_y", ncol = 3) +
-  scale_x_continuous(
-    breaks = c(0.1, 0.25, 0.5, 0.75, 0.9),
-    labels = c("0.10", "0.25", "0.50", "0.75", "0.90")
-  ) +
-  theme_minimal() +
-  labs(
-    title = "Kiekybinių kintamųjų koeficientų kitimas skirtinguose kvantiliuose",
-    x = "Kvantilis",
-    y = "Koeficiento įvertis"
-  ) +
-  theme(
-    strip.text = element_text(face = "bold", size = 9),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
+  # vertikalios linijos ties 0.25 ir 0.75
+  abline(v = c(0.25, 0.75), col = "grey40", lty = 2)
+
+  # pasiimam braižymo srities ribas
+  usr <- par("usr")
+
+  # papildomi tick'ai ant originalios x ašies
+  segments(0.25, usr[3], 0.25, usr[3] + 0.04 * (usr[4] - usr[3]), xpd = FALSE)
+  segments(0.75, usr[3], 0.75, usr[3] + 0.04 * (usr[4] - usr[3]), xpd = FALSE)
+
+  # papildomi užrašai prie originalios x ašies
+  text(0.25, usr[3] - 0.08 * (usr[4] - usr[3]), "0.25", xpd = NA, col = "red")
+  text(0.75, usr[3] - 0.08 * (usr[4] - usr[3]), "0.75", xpd = NA, col = "red")
+
+  mtext("Kvantilis", side = 1, line = 4)
+  mtext("Koeficiento įvertis", side = 2, line = 4)
+}
+
 ```
 
 
 ```{r}
-library(car)
+# Multikolinearumas
+
 pagalbinis <- lm(Kaina ~ ., 
                      data = model_data)
 vif_values <- vif(pagalbinis)
 vif_values
 ```
 
+
 ```{r}
-# Homoskedastiskumas:
-library(lmtest)
-bptest(pagalbinis)
-#ei p<0.05, duomenys yra heteroskedastiški (sklaida nevienoda). Tai pagrindžia poreikį naudoti kvantilių regresiją.
+# Išskirtys pagal Pearson liekanas
+
+# Pearson liekanos
+residuals_lm <- residuals(pagalbinis)
+sigma_hat <- summary(pagalbinis)$sigma
+
+pearson_res <- residuals_lm / sigma_hat
+
+# Išskirtys: |Pearson liekana| > 3
+isskirtys_idx <- which(abs(pearson_res) > 3)
+
+plot(pearson_res,
+     main = "Išskirtys pagal Pearson liekanas",
+     ylab = "Pearson liekanos",
+     xlab = "Stebėjimo indeksas",
+     pch = 21,
+     col = "deepskyblue4",
+     bg = adjustcolor("deepskyblue2", alpha.f = 0.3),
+     cex = 1.2)
+
+abline(h = c(-3, 3), col = "red", lty = 2)
+
+cat("Išskirčių skaičius pagal Pearson liekanas (|r| > 3):", length(isskirtys_idx), "\n")
+
+if (length(isskirtys_idx) > 0) {
+  cat("Išskirčių stebėjimų indeksai:\n")
+  print(isskirtys_idx)
+} else {
+  cat("Išskirčių, kurių |Pearson liekana| > 3, nėra.\n")
+}
+
+# Išvados: nustatyta 224 išskirtys pagal Pearson liekanas, tačiau kvantilių regresija nejautri išskirtims, todėl jų nešaliname.
 ```
+```{r}
+# Įtakingi taškai pagal Kuko matą
+
+cooks <- cooks.distance(pagalbinis)
+
+# Įtakingi taškai: Cook > 1
+itakingi_idx <- which(cooks > 1)
+
+plot(cooks,
+     main = "Įtakingi taškai pagal Cook'o atstumą",
+     ylab = "Cook'o atstumas",
+     xlab = "Stebėjimo indeksas",
+     pch = 21,
+     col = "deepskyblue4",                        
+     bg = adjustcolor("deepskyblue2", alpha.f = 0.3),  
+     cex = 1.2)
+
+abline(h = 1, col = "red", lty = 2)
+
+cat("Įtakingų taškų skaičius pagal Cook'o atstumą (> 1):", length(itakingi_idx), "\n")
+
+if (length(itakingi_idx) > 0) {
+  cat("Įtakingų stebėjimų indeksai:\n")
+  print(itakingi_idx)
+} else {
+  cat("Įtakingų stebėjimų, kurių Cook'o atstumas > 1, nėra.\n")
+}
+
+# Išvados: nėra įtakingų taškų
+```
+
+
+```{r}
+# Homoskedastiškumas:
+
+bptest(pagalbinis)
+# Duomenys yra heteroskedastiški (disperija nevienoda), p<0.05. Tai pagrindžia poreikį naudoti kvantilių regresiją.
+```
+```{r}
+# Liekanų normalumas:
+
+ad.test(residuals(pagalbinis))
+# Liekanos nėra normaliai pasiskirsčiusios - p<0.05, tai irgi pagrindžia poreikį nenaudoti tiesinės regresijos, o vietoj to naudoti kvantilių.
+```
+
+
 Pirmas modelis (su tau = 0.75)
 ```{r}
-library(quantreg)
-
-# Sudarome modelį konkrečiam kvantiliui (pvz., 0.75)
+# Sudarome modelį kvantiliui 0.75
 fit_75 <- rq(Kaina ~ ., 
                      data = model_data, 
                      tau = 0.75)
 
 
 summary(fit_75, se = "nid")
+# nereiksmingi: `Yra sandėliukas`Taip, `Yra balkonas`Taip, `Yra parkingo vieta`Taip , `Statybinė medžiaga`Gelžbetonio plokštės, `Atstumas iki vaistinės`, `Atstumas iki klinikos`, `Atstumas iki mokyklos`
 ```
 Pazingsnine atranka
 ```{r}
-step_model1 <- step(fit_75, direction = "backward", trace = FALSE) # k = log(nrow(model_data)))
+step_model1 <- step(fit_75, direction = "backward", trace = FALSE) 
 
 
 summary(step_model1)
 ```
 Prijungiamos saveikos:
 ```{r}
-su_saveikom <- update(step_model1, . ~ . + `Pastatymo metai`*`KVM`+ `Pastatymo metai`*`Miestas` +`Atstumas iki centro` * `Pastatymo metai`+`Yra liftas` * `Aukštų skaičius` )
+su_saveikom <- update(step_model1,
+                      . ~ .
+                        + `Plotas (m²)` * `Atstumas iki centro`
+                        + `Plotas (m²)` * Miestas
+                        + `Atstumas iki centro` * Miestas 
+                        + `Pastatymo metai`*`Plotas (m²)`
+                        + Miestas:`Atstumas iki centro` 
+                        + Aukštas * `Aukštų skaičius` 
+                        + `Plotas (m²)` * `Kambarių skaičius`)
 
 
 # Peržiūrime rezultatus
@@ -585,19 +833,33 @@ summary(su_saveikom, se = "nid")
 
 AIC(step_model1)
 AIC(su_saveikom)
+
+# nereiksminga saveika: `Plotas (m²)`:`Kambarių skaičius`
 ```
+```{r}
+# Pašalinam nereikšmingą sąveiką:
+su_saveikom_clean <- update(
+  su_saveikom,
+  . ~ . - `Plotas (m²)` * `Kambarių skaičius`)
+
+summary(su_saveikom_clean, se = "nid")
+
+AIC(step_model1)
+AIC(su_saveikom_clean)
+```
+
 Modelio tinkamumas:
 ```{r}
 tau_reiksme <- 0.75 
 
 fit0 <- rq(Kaina ~ 1, tau = tau_reiksme, data = model_data)
-fit1 <- su_saveikom
+fit1 <- su_saveikom_clean
 
 # 2. Pseudo-R1 skaičiavimas
 # fit$rho grąžina minimizuotą tikslo funkcijos reikšmę (nuostolių funkciją)
-R1 <- 1 - fit1$rho / fit0$rho
+R1_1 <- 1 - fit1$rho / fit0$rho
 
-cat("Pseudo-R1 reikšmė kvantiliui", tau_reiksme, "yra:", R1, "\n")
+cat("Pseudo-R1 reikšmė kvantiliui", tau_reiksme, "yra:", R1_1, "\n")
 ```
 
 2 modelis (tau = 0.25)
@@ -610,8 +872,9 @@ fit_25 <- rq(Kaina ~ .,
 summary(fit_25, se = "nid")
 #Nereiksmingi: Aukstas, Aukstu skaicius ir Yra sandeliukas
 ```
-Pasalinami nereiksmingi kintamieji:
+
 ```{r}
+# Pasalinami nereiksmingi kintamieji:
 fit_25_red <- update(
   fit_25,
   . ~ . - Aukštas - `Aukštų skaičius` - `Yra sandėliukas`
@@ -621,6 +884,7 @@ summary(fit_25_red, se = "nid")
 # Atsirado nereiksmingas Atstumas iki mokyklos
 ```
 ```{r}
+# Pašalinam nereikšmingą kintamajį: 
 fit_25_2 <- update(
   fit_25_red,
   . ~ . - `Atstumas iki mokyklos`
@@ -630,34 +894,41 @@ summary(fit_25_2, se = "nid")
 # Jau visi reiksmingi
 ```
 
-Prijungiamos saveikos:
 ```{r}
+# Prijungiamos saveikos:
+
 su_saveikom2 <- update(fit_25_2, 
   . ~ . 
-  + KVM * `Atstumas iki centro`
-  + KVM * Miestas
-  + `Atstumas iki centro` * Miestas
+  + `Plotas (m²)` * `Atstumas iki centro`
+  + `Plotas (m²)` * Miestas
+  + `Atstumas iki centro` * Miestas 
+  + `Pastatymo metai`*`Plotas (m²)`
+  + Miestas:`Atstumas iki centro` 
+  + Aukštas * `Aukštų skaičius` 
+  + `Plotas (m²)` * `Kambarių skaičius`
 )
 
 # Peržiūrime rezultatus
 summary(su_saveikom2, se = "nid")
 
-AIC(step_model2)
+AIC(fit_25_2)
 AIC(su_saveikom2)
 
 # Atsirado nereiksmingi Atstumas iki vaistines ir Atstumas iki vaiku darzelio
 ```
-Pasalinti nereiksmingi kintamieji:
+
 ```{r}
-su_saveikom2_galutinis <- update(su_saveikom2, 
+#Pašalinami nereikšmingi kintamieji:
+
+su_saveikom2_clean <- update(su_saveikom2, 
   . ~ . - `Atstumas iki vaikų darželio` - `Atstumas iki vaistinės`
 )
 
 # Peržiūrime rezultatus
-summary(su_saveikom2_galutinis, se = "nid")
+summary(su_saveikom2_clean, se = "nid")
 
-AIC(su_saveikom2)
-AIC(su_saveikom2_galutinis)
+AIC(fit_25_2)
+AIC(su_saveikom2_clean)
 ```
 
 Modelio tinkamumas:
@@ -665,14 +936,213 @@ Modelio tinkamumas:
 tau_reiksme <- 0.25 
 
 fit02 <- rq(Kaina ~ 1, tau = tau_reiksme, data = model_data)
-fit12 <- su_saveikom2_galutinis
+fit12 <- su_saveikom2_clean
 
 # 2. Pseudo-R1 skaičiavimas
 # fit$rho grąžina minimizuotą tikslo funkcijos reikšmę (nuostolių funkciją)
-R1 <- 1 - fit12$rho / fit02$rho
+R1_2 <- 1 - fit12$rho / fit02$rho
 
-cat("Pseudo-R1 reikšmė kvantiliui", tau_reiksme, "yra:", R1, "\n")
+cat("Pseudo-R1 reikšmė kvantiliui", tau_reiksme, "yra:", R1_2, "\n")
 ```
+-----------------------------------------------
+Modelių palyginimas:
+```{r}
+# 1. Pseudo-R1
+tau_reiksme_2 <- 0.25
+fit02 <- rq(Kaina ~ 1, tau = tau_reiksme_2, data = model_data)
+fit12 <- su_saveikom2_clean
+R1_2 <- 1 - fit12$rho / fit02$rho
+
+tau_reiksme_1 <- 0.75
+fit0 <- rq(Kaina ~ 1, tau = tau_reiksme_1, data = model_data)
+fit1 <- su_saveikom_clean
+R1_1 <- 1 - fit1$rho / fit0$rho
+
+
+# 2. Prognozės
+y_true <- model_data$Kaina
+
+y_pred_2 <- predict(su_saveikom2_clean, newdata = model_data)
+y_pred_1 <- predict(su_saveikom_clean, newdata = model_data)
+
+# 3. Paklaidų rodikliai
+
+# Modelis su_saveikom2_clean (tau = 0.25)
+MAE_2  <- mean(abs(y_true - y_pred_2))
+MAPE_2 <- mean(abs((y_true - y_pred_2) / y_true)) * 100
+MSE_2  <- mean((y_true - y_pred_2)^2)
+RMSE_2 <- sqrt(MSE_2)
+AIC_2  <- AIC(su_saveikom2_clean)
+
+# Modelis su_saveikom_clean (tau = 0.75)
+MAE_1  <- mean(abs(y_true - y_pred_1))
+MAPE_1 <- mean(abs((y_true - y_pred_1) / y_true)) * 100
+MSE_1  <- mean((y_true - y_pred_1)^2)
+RMSE_1 <- sqrt(MSE_1)
+AIC_1  <- AIC(su_saveikom_clean)
+
+
+# 4. Lyginamoji lentelė
+palyginimo_lentele <- data.frame(
+  Modelis = c("Kvantilių regresija (τ = 0.25)", 
+              "Kvantilių regresija (τ = 0.75)"),
+  Kvantilis = c(0.25, 0.75),
+  Pseudo_R1 = c(R1_2, R1_1),
+  AIC = c(AIC_2, AIC_1),
+  MAE = c(MAE_2, MAE_1),
+  MAPE = c(MAPE_2, MAPE_1),
+  RMSE = c(RMSE_2, RMSE_1),
+  MSE = c(MSE_2, MSE_1)
+)
+
+# Suapvalinimas
+palyginimo_lentele <- palyginimo_lentele %>%
+  mutate(
+    Pseudo_R1 = round(Pseudo_R1, 4),
+    AIC = round(AIC, 2),
+    MAE = round(MAE, 2),
+    MAPE = round(MAPE, 2),
+    RMSE = round(RMSE, 2),
+    MSE = round(MSE, 2)
+  )
+
+
+kable(
+  palyginimo_lentele,
+  caption = "Kvantilių regresijos modelių tinkamumo rodiklių palyginimas"
+)
+
+#print(palyginimo_lentele)
+```
+
+```{r}
+# Sklaidos diagramos:
+
+# 1. Tikros ir prognozuotos reikšmės
+y_true <- model_data$Kaina
+
+y_pred_025 <- predict(su_saveikom2_clean, newdata = model_data)
+y_pred_075 <- predict(su_saveikom_clean, newdata = model_data)
+
+# 2. Koreliacijos
+cor_025 <- cor(y_true, y_pred_025, method = "spearman")
+cor_075 <- cor(y_true, y_pred_075, method = "spearman")
+
+# 3. Duomenys grafikams
+df_025 <- data.frame(
+  Stebeta = y_true,
+  Prognozuota = y_pred_025
+)
+
+df_075 <- data.frame(
+  Stebeta = y_true,
+  Prognozuota = y_pred_075
+)
+
+# Bendros ribos abiem grafikams
+ribos <- range(c(y_true, y_pred_025, y_pred_075), na.rm = TRUE)
+
+# 4. Grafikas tau = 0.25
+g1 <- ggplot(df_025, aes(x = Stebeta, y = Prognozuota)) +
+  geom_point(
+    shape = 21,
+    color = "deepskyblue4",
+    fill = scales::alpha("deepskyblue2", 0.3),
+    size = 2
+  ) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", linewidth = 1) +
+  annotate(
+    "text",
+    x = ribos[1] + 0.1 * diff(ribos),
+    y = ribos[2] - 0.08 * diff(ribos),
+    label = paste0("ρ = ", round(cor_025, 4)),
+    hjust = 0,
+    size = 5
+  ) +
+  coord_equal(xlim = ribos, ylim = ribos) +
+  scale_x_continuous(labels = scales::label_number(big.mark = " ", decimal.mark = ",")) +
+  scale_y_continuous(labels = scales::label_number(big.mark = " ", decimal.mark = ",")) +
+  labs(
+    title = "Kvantilių regresijos modelis (τ = 0.25)",
+    x = "Stebėtos reikšmės",
+    y = "Prognozuotos reikšmės"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA)
+  )
+
+# 5. Grafikas tau = 0.75
+g2 <- ggplot(df_075, aes(x = Stebeta, y = Prognozuota)) +
+  geom_point(
+    shape = 21,
+    color = "deepskyblue4",
+    fill = scales::alpha("deepskyblue2", 0.3),
+    size = 2
+  ) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", linewidth = 1) +
+  annotate(
+    "text",
+    x = ribos[1] + 0.1 * diff(ribos),
+    y = ribos[2] - 0.08 * diff(ribos),
+    label = paste0("ρ = ", round(cor_075, 4)),
+    hjust = 0,
+    size = 5
+  ) +
+  coord_equal(xlim = ribos, ylim = ribos) +
+  scale_x_continuous(labels = scales::label_number(big.mark = " ", decimal.mark = ",")) +
+  scale_y_continuous(labels = scales::label_number(big.mark = " ", decimal.mark = ",")) +
+  labs(
+    title = "Kvantilių regresijos modelis (τ = 0.75)",
+    x = "Stebėtos reikšmės",
+    y = "Prognozuotos reikšmės"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA)
+  )
+
+# 6. Abu grafikai viename lange
+grid.arrange(g1, g2, ncol = 2)
+```
+Interpretuojam β:
+```{r}
+# 0.25 kvantiliui:
+summary(su_saveikom2_clean, se = "nid")
+```
+
+```{r}
+# 0.75 kvantiliui:
+summary(su_saveikom_clean, se = "nid")
+```
+
+Atlikta kvantilių regresijos analizė leidžia įvertinti, kaip įvairūs veiksniai daro įtaką butų kainai skirtinguose kainų pasiskirstymo lygiuose – žemesniame (τ = 0,25) ir aukštesniame (τ = 0,75) kvantiliuose.
+
+0.25 kvantilio modeliui:
+Pigesnių butų segmente (τ = 0,25) vienas svarbiausių veiksnių yra būklė – geros būklės butai yra vidutiniškai apie 81 825 € brangesni nei prastesnės būklės. Taip pat reikšmingą teigiamą poveikį turi lifto buvimas – butai su liftu yra apie 44 255 € brangesni. Kambarių skaičius taip pat yra svarbus – padidinus kambarių skaičių vienu vienetu, buto kaina padidėja apie 23 807 €.
+
+Analizuojant lokacijos kintamuosius nustatyta, kad atstumas iki infrastruktūros objektų daro reikšmingą įtaką kainai. Padidinus atstumą iki restorano 1 km, buto kaina sumažėja apie 21 611 €, o padidinus atstumą iki universiteto – apie 12 779 €. Tuo tarpu atstumas iki centro pasižymi teigiamu koeficientu (+19 722 € už 1 km), kas gali būti siejama su tuo, kad pigesni butai dažniau yra naujesniuose ar besivystančiuose rajonuose. Aukštas taip pat turi neigiamą poveikį – pakilus vienu aukštu, kaina sumažėja apie 10 775 €.
+
+Svarbu pažymėti, kad pigesnių butų segmente išryškėja ir sąveikos efektai. Pavyzdžiui, ploto ir atstumo iki centro sąveika yra neigiama (−325), o tai reiškia, kad didesnio ploto butai, esantys toliau nuo centro, praranda daugiau vertės. Taip pat neigiama sąveika tarp ploto ir kambarių skaičiaus (−338) rodo, kad didesniuose butuose papildomas kambarys mažiau didina kainą.
+
+0.75 kvantilio modeliui:
+Brangesnių butų segmente (τ = 0,75) išryškėja kiek kitokie dėsningumai. Stipriausią poveikį ir toliau turi būklė – geros būklės butai yra apie 92 130 € brangesni. Reikšmingas tampa ir pastato naujumas – padidinus pastatymo metus vieneriais metais, buto kaina padidėja apie 931 €, kas rodo, kad aukštesniame kainų segmente naujesni būstai yra labiau vertinami.
+
+Lokacijos veiksniai išlieka svarbūs – padidinus atstumą iki restorano 1 km, kaina sumažėja apie 29 597 €, o iki universiteto – apie 17 450 €. Tuo tarpu atstumas iki centro turi dar didesnį teigiamą poveikį (+32 591 € už 1 km), tačiau dėl sąveikų šis efektas nėra vienodas visiems miestams. Liftas taip pat išlieka reikšmingas – butai su liftu yra apie 41 125 € brangesni.
+
+Brangesnių butų segmente ypač svarbios tampa sąveikos tarp kintamųjų. Teigiama sąveika tarp ploto ir pastatymo metų (+4,45) rodo, kad dideli ir nauji butai yra ypač vertingi. Tuo tarpu neigiama sąveika tarp ploto ir atstumo iki centro (−427) leidžia teigti, kad dideli butai, esantys toliau nuo centro, praranda dar daugiau vertės. Be to, aukšto ir aukštų skaičiaus sąveika (+827) rodo, kad aukšto poveikis kainai priklauso nuo pastato aukščio.
+
+Apibendrinant galima teigti, kad pigesnių butų segmente svarbiausi yra funkciniai ir prieinamumo veiksniai (kambarių skaičius, infrastruktūra), tuo tarpu brangesnių butų segmente didesnę reikšmę įgauna kokybės ir prestižo aspektai (būklė, pastato naujumas, sąveikos tarp kintamųjų). Tai patvirtina, kad skirtinguose rinkos segmentuose veikia skirtingi kainą lemiantys mechanizmai.
+
+
 
 ```{r}
 # Tikriname, ar 0.1 ir 0.9 kvantilių koeficientai yra vienodi
