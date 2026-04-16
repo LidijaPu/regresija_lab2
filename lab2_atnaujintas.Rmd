@@ -392,11 +392,15 @@ cat("Ekscesas (Kurtosis):", kurtosis(allData$Kaina), "\n")
 
 ```{r}
 # Kainos tankis
+scale_y_continuous(labels = scales::label_number(decimal.mark = ","))
 ggplot(allData, aes(x = Kaina / 1000)) +
   geom_histogram(aes(y = after_stat(density)), bins = 20,
                  fill = "skyblue", color = "black") +
   geom_density(alpha = 0.2, fill = "red") +
+  
   scale_x_continuous(labels = scales::label_number(big.mark = " ")) +
+  scale_y_continuous(labels = scales::label_number(decimal.mark = ",")) +
+  
   labs(title = "Priklausomo kintamojo (kainos) pasiskirstymas",
        x = "Kaina (tūkst. €)", y = "Tankis") +
   theme_minimal()
@@ -517,7 +521,7 @@ ggcorrplot(
   method = "square",       
   type = "lower",         
   lab = TRUE,            
-  lab_size = 2,           
+  lab_size = 3,           
   colors = c("red", "white", "blue"), 
   title = "Kintamųjų koreliacijos matrica",
   ggtheme = theme_minimal()
@@ -662,21 +666,48 @@ sutvarkyti_pavadinima <- function(k, vardai) {
 # 2. Kvantiliai
 taus <- seq(0.05, 0.95, by = 0.1)
 
-# 3. Modelis (svarbu: kategoriniai kaip factor)
+# 3. Duomenys modeliui
+duomenys_modeliui_cat <- allData %>%
+  select(
+    Kaina,
+    Miestas,
+    Tipas,
+    `Statybinė medžiaga`,
+    Būklė,
+    `Yra parkingo vieta`,
+    `Yra balkonas`,
+    `Yra liftas`,
+    `Yra apsauga`,
+    `Yra sandėliukas`
+  ) %>%
+  mutate(
+    Miestas = as.factor(Miestas),
+    Tipas = as.factor(Tipas),
+    `Statybinė medžiaga` = as.factor(`Statybinė medžiaga`),
+    Būklė = as.factor(Būklė),
+    `Yra parkingo vieta` = as.factor(`Yra parkingo vieta`),
+    `Yra balkonas` = as.factor(`Yra balkonas`),
+    `Yra liftas` = as.factor(`Yra liftas`),
+    `Yra apsauga` = as.factor(`Yra apsauga`),
+    `Yra sandėliukas` = as.factor(`Yra sandėliukas`)
+  ) %>%
+  na.omit()
+
+# 4. Modelis (svarbu: kategoriniai kaip factor)
 modelis_qr_cat <- rq(
   Kaina ~ .,
   data = duomenys_modeliui_cat,
   tau = taus
 )
 
-# 4. Summary
+# 5. Summary
 sum_qr_cat <- summary(modelis_qr_cat, se = "nid")
 
-# 5. Imam visus koeficientus (be intercept)
+# 6. Imam visus koeficientus (be intercept)
 kintamieji_cat <- rownames(coef(modelis_qr_cat))
 kintamieji_cat <- kintamieji_cat[kintamieji_cat != "(Intercept)"]
 
-# 6. Braižymas
+# 7. Braižymas
 par(mar = c(5, 5, 3, 1))
 
 for (k in kintamieji_cat) {
